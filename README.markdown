@@ -1,6 +1,6 @@
 # HiFBA: High-Order Inexact Forward-Backward Algorithm
 
-HiFBA is an algorithm for sparse signal recovery with Laplace noise, designed for solving inverse problems with a non-smooth regularizer. This implementation runs the algorithm for a fixed `q=1.5` with predefined parameters.
+HiFBA: This implementation runs the algorithm for a fixed `q=1.5` with predefined parameters.
 
 ## Author
 
