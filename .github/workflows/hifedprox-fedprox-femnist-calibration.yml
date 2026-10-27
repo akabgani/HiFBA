@@ -1,0 +1,68 @@
+name: HiFedProx FEMNIST training-only calibration
+
+on:
+  push:
+    branches: [hifedprox-fedprox-femnist]
+    paths:
+      - '.github/workflows/hifedprox-fedprox-femnist-calibration.yml'
+      - 'experiments/calibrate_hifedprox_femnist.py'
+      - 'experiments/hifedprox_fedprox_femnist.py'
+  workflow_dispatch:
+
+jobs:
+  calibrate:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {p: '2', rs: '1.0'}
+          - {p: '3', rs: '0.75'}
+          - {p: '3', rs: '1.0'}
+          - {p: '3', rs: '1.25'}
+          - {p: '4', rs: '0.75'}
+          - {p: '4', rs: '1.0'}
+          - {p: '4', rs: '1.25'}
+          - {p: '5', rs: '0.75'}
+          - {p: '5', rs: '1.0'}
+          - {p: '5', rs: '1.25'}
+          - {p: '6', rs: '0.75'}
+          - {p: '6', rs: '1.0'}
+          - {p: '6', rs: '1.25'}
+          - {p: '7', rs: '0.75'}
+          - {p: '7', rs: '1.0'}
+          - {p: '7', rs: '1.25'}
+          - {p: '8', rs: '0.75'}
+          - {p: '8', rs: '1.0'}
+          - {p: '8', rs: '1.25'}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip numpy gdown
+      - name: Download official FedProx FEMNIST archive
+        run: |
+          gdown 1tCEcJgRJ8NdRo11UJZR6WSKMNdmox4GC -O femnist.zip
+          mkdir -p femnist_data
+          unzip -q femnist.zip -d femnist_data
+      - name: Calibrate p and R on training-only validation split
+        run: |
+          TRAIN=$(find femnist_data -type f -name 'mytrain.json' | head -1)
+          if [ -z "$TRAIN" ]; then echo 'Could not locate mytrain.json'; exit 2; fi
+          python experiments/calibrate_hifedprox_femnist.py \
+            --train "$TRAIN" --out calibration \
+            --power ${{ matrix.p }} --r-scale ${{ matrix.rs }} \
+            --validation-fraction 0.15 --validation-seed 20261027 \
+            --rounds 200 --clients-per-round 10 --epochs 20 --batch-size 10 \
+            --lr 0.003 --mu 1.0 --num-classes 26 --drop 0.9 \
+            --seeds 0 1 2 --pilot-rounds 20 --eval-every 10
+      - name: Upload calibration result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: calibration-p${{ matrix.p }}-r${{ matrix.rs }}
+          path: calibration/
+          if-no-files-found: warn
