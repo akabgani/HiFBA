@@ -18,7 +18,7 @@ jobs:
         run: python -m pip install --upgrade pip numpy gdown
       - name: Download official FedProx FEMNIST archive
         run: |
-          gdown --id 1tCEcJgRJ8NdRo11UJZR6WSKMNdmox4GC -O femnist.zip
+          gdown 1tCEcJgRJ8NdRo11UJZR6WSKMNdmox4GC -O femnist.zip
           mkdir -p femnist_data
           unzip -q femnist.zip -d femnist_data
           find femnist_data -maxdepth 4 -type f | head -40
