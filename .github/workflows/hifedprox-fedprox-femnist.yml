@@ -11,6 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         drop: ['0', '0.5', '0.9']
+        method: ['fedavg', 'fedprox', 'hifedprox']
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -34,16 +35,17 @@ jobs:
           fi
           echo "TRAIN=$TRAIN"
           echo "TEST=$TEST"
-          echo "DROP=${{ matrix.drop }}"
+          echo "DROP=${{ matrix.drop }} METHOD=${{ matrix.method }}"
           python experiments/hifedprox_fedprox_femnist.py \
             --train "$TRAIN" --test "$TEST" --out results \
             --rounds 200 --clients-per-round 10 --epochs 20 --batch-size 10 \
             --lr 0.003 --mu 1.0 --power 6 --num-classes 26 \
-            --seeds 0 --drops ${{ matrix.drop }} --pilot-rounds 20 --eval-every 5
+            --seeds 0 --drops ${{ matrix.drop }} --methods ${{ matrix.method }} \
+            --pilot-rounds 20 --eval-every 5
       - name: Upload benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hifedprox-fedprox-femnist-drop-${{ matrix.drop }}
+          name: hifedprox-fedprox-femnist-${{ matrix.method }}-drop-${{ matrix.drop }}
           path: results/
           if-no-files-found: warn
