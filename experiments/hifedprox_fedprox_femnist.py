@@ -40,16 +40,19 @@ def power_grad(delta, mu, p, R):
     if nrm==0: return np.zeros_like(delta)
     return mu*(R**(2.0-p))*(nrm**(p-2.0))*delta
 
-def local_train(global_theta, X, y, epochs, batch_size, lr, mu, p, R, d, c):
-    theta=global_theta.copy(); n=len(y); order=np.arange(n); fixed_perm=np.random.RandomState(100).permutation(n)
+def local_train(global_theta, X, y, order, epochs, batch_size, lr, mu, p, R, d, c):
+    theta=global_theta.copy(); n=len(y); fixed_perm=np.random.RandomState(100).permutation(n)
     for _ in range(int(epochs)):
+        # Mirrors FedProx batch_data(): seed 100 each epoch and shuffle the
+        # client's stored data in place. Keeping `order` across participations
+        # reproduces that persistent permutation without mutating X/y.
         order=order[fixed_perm]
         for s in range(0,n,batch_size):
             idx=order[s:s+batch_size]
             if len(idx)==0: continue
             g=grad_ce(theta,X[idx],y[idx],d,c)+power_grad(theta-global_theta,mu,p,R)
             theta-=lr*g
-    return theta
+    return theta,order
 
 def init_theta(d,c,seed):
     rng=np.random.RandomState(123+seed); lim=math.sqrt(6.0/(d+c))
@@ -64,15 +67,22 @@ def evaluate_all(theta,data,d,c):
 def make_round_schedule(nclients,rounds,cpr,drop,E):
     schedules=[]
     for r in range(rounds):
-        rs=np.random.RandomState(r); selected=rs.choice(np.arange(nclients),min(cpr,nclients),replace=False)
-        n_active=round(len(selected)*(1-drop)); active=set(rs.choice(selected,n_active,replace=False).tolist()) if n_active>0 else set(); epochs={}
-        for ci in selected.tolist(): epochs[ci]=E if ci in active else int(rs.randint(1,E))
+        # Exact released-code RNG semantics: reset to round r for client
+        # selection, then reset AGAIN to r before active/straggler selection.
+        rs_select=np.random.RandomState(r)
+        selected=rs_select.choice(np.arange(nclients),min(cpr,nclients),replace=False)
+        rs_work=np.random.RandomState(r)
+        n_active=round(len(selected)*(1-drop))
+        active=set(rs_work.choice(selected,n_active,replace=False).tolist()) if n_active>0 else set()
+        epochs={}
+        for ci in selected.tolist():
+            epochs[ci]=E if ci in active else int(rs_work.randint(1,E))
         schedules.append((selected.tolist(),active,epochs))
     return schedules
 
 def run_method(users,train,test,method,drop,rounds,cpr,E,batch,lr,mu,p,R,seed,num_classes,eval_every=1):
     d=train[users[0]][0].shape[1]; c=num_classes; theta=init_theta(d,c,seed); schedules=make_round_schedule(len(users),rounds,cpr,drop,E)
-    history=[]; all_update_norms=[]
+    history=[]; all_update_norms=[]; order_states={u:np.arange(len(train[u][1])) for u in users}
     for r,(sel,active,epochs) in enumerate(schedules):
         locals_=[]; weights=[]; norms=[]; use=active if method=='fedavg' else set(sel)
         for ci in sel:
@@ -82,7 +92,8 @@ def run_method(users,train,test,method,drop,rounds,cpr,E,batch,lr,mu,p,R,seed,nu
             elif method=='fedprox': e=epochs[ci]; lmu=mu; lp=2.0
             elif method=='hifedprox': e=epochs[ci]; lmu=mu; lp=p
             else: raise ValueError(method)
-            th=local_train(theta,X,y,e,batch,lr,lmu,lp,R,d,c); locals_.append(th); weights.append(len(y)); norms.append(float(np.linalg.norm(th-theta)))
+            th,new_order=local_train(theta,X,y,order_states[u],e,batch,lr,lmu,lp,R,d,c); order_states[u]=new_order
+            locals_.append(th); weights.append(len(y)); norms.append(float(np.linalg.norm(th-theta)))
         if locals_:
             w=np.asarray(weights,dtype=np.float64); w/=w.sum(); theta=np.sum(np.stack(locals_)*w[:,None],axis=0)
         all_update_norms.extend(norms)
