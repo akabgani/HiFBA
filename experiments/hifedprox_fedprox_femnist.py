@@ -101,14 +101,14 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--train',required=True); ap.add_argument('--test',required=True); ap.add_argument('--out',default='results')
     ap.add_argument('--rounds',type=int,default=200); ap.add_argument('--clients-per-round',type=int,default=10); ap.add_argument('--epochs',type=int,default=20); ap.add_argument('--batch-size',type=int,default=10)
     ap.add_argument('--lr',type=float,default=0.003); ap.add_argument('--mu',type=float,default=1.0); ap.add_argument('--power',type=float,default=6.0); ap.add_argument('--num-classes',type=int,default=26)
-    ap.add_argument('--seeds',type=int,nargs='+',default=[0,1,2]); ap.add_argument('--drops',type=float,nargs='+',default=[0,0.5,0.9]); ap.add_argument('--pilot-rounds',type=int,default=20); ap.add_argument('--eval-every',type=int,default=5); args=ap.parse_args()
+    ap.add_argument('--seeds',type=int,nargs='+',default=[0,1,2]); ap.add_argument('--drops',type=float,nargs='+',default=[0,0.5,0.9]); ap.add_argument('--methods',nargs='+',choices=['fedavg','fedprox','hifedprox'],default=['fedavg','fedprox','hifedprox']); ap.add_argument('--pilot-rounds',type=int,default=20); ap.add_argument('--eval-every',type=int,default=5); args=ap.parse_args()
     users,tr=merge_jsons(args.train); _,te=merge_jsons(args.test); users=[u for u in users if u in te]; stats=dataset_stats(users,tr,te); print('DATASET_STATS',json.dumps(stats),flush=True)
     out=Path(args.out); out.mkdir(parents=True,exist_ok=True); (out/'dataset_stats.json').write_text(json.dumps(stats,indent=2))
     pilot=run_method(users,tr,te,'fedprox',0.0,args.pilot_rounds,args.clients_per_round,args.epochs,args.batch_size,args.lr,args.mu,2.0,1.0,0,args.num_classes,max(args.pilot_rounds,1)); R=max(float(pilot['update_norm_q90_all']),1e-8); print('CALIBRATED_R',R,flush=True)
     results=[]
     for seed in args.seeds:
         for drop in args.drops:
-            for method in ['fedavg','fedprox','hifedprox']:
+            for method in args.methods:
                 res=run_method(users,tr,te,method,drop,args.rounds,args.clients_per_round,args.epochs,args.batch_size,args.lr,args.mu,args.power,R,seed,args.num_classes,args.eval_every); results.append(res); (out/f'{method}_drop{drop:g}_seed{seed}.json').write_text(json.dumps(res,indent=2))
     rows=[]
     for res in results:
@@ -117,7 +117,7 @@ def main():
         w=csv.DictWriter(f,fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
     agg=[]
     for drop in args.drops:
-        for method in ['fedavg','fedprox','hifedprox']:
+        for method in args.methods:
             rr=[x for x in rows if x['drop']==drop and x['method']==method]; a=np.array([x['test_acc'] for x in rr]); l=np.array([x['test_loss'] for x in rr]); t=np.array([x['tail_q90_q50'] for x in rr])
             agg.append({'drop':drop,'method':method,'p':args.power if method=='hifedprox' else (2 if method=='fedprox' else None),'test_acc_mean':float(a.mean()),'test_acc_sd':float(a.std(ddof=1)) if len(a)>1 else 0.0,'test_loss_mean':float(l.mean()),'test_loss_sd':float(l.std(ddof=1)) if len(l)>1 else 0.0,'tail_mean':float(t.mean()),'tail_sd':float(t.std(ddof=1)) if len(t)>1 else 0.0})
     with open(out/'aggregate.csv','w',newline='') as f:
