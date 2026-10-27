@@ -1,0 +1,66 @@
+name: Collect final HiFedProx FEMNIST comparison
+
+on:
+  push:
+    branches: [hifedprox-fedprox-femnist]
+    paths:
+      - '.github/workflows/collect-final-hifedprox-fedprox-femnist.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download final benchmark artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p final_artifacts
+          gh run download 40590841966 -D final_artifacts
+          find final_artifacts -name aggregate.json | wc -l
+      - name: Combine tables and curves
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import csv,json,statistics,math
+          root=Path('final_artifacts'); out=Path('final_summary'); out.mkdir(exist_ok=True)
+          table=[]; curve_groups={}
+          for af in root.rglob('aggregate.json'):
+              a=json.loads(af.read_text()); table.append(a)
+          table.sort(key=lambda a:(a['drop'], {'fedavg':0,'fedprox':1,'hifedprox':2}[a['method']]))
+          fields=['drop','method','p','mu','R','base_R','n_seeds','test_accuracy_mean','test_accuracy_sd','test_loss_mean','test_loss_sd','tail_mean','tail_sd']
+          with (out/'final_table.csv').open('w',newline='') as h:
+              w=csv.DictWriter(h,fieldnames=fields); w.writeheader();
+              for a in table: w.writerow({k:a.get(k) for k in fields})
+          for hf in root.rglob('histories.json'):
+              runs=json.loads(hf.read_text())
+              if not runs: continue
+              method=runs[0]['method']; drop=runs[0]['drop']; key=(drop,method)
+              by_round={}
+              for run in runs:
+                  for rec in run['history']:
+                      by_round.setdefault(rec['round'],[]).append(rec)
+              for rnd,recs in by_round.items():
+                  def ms(k):
+                      vals=[float(r[k]) for r in recs]; m=sum(vals)/len(vals); s=statistics.stdev(vals) if len(vals)>1 else 0.0; return m,s
+                  am,as_=ms('test_acc'); lm,ls=ms('test_loss'); tm,ts=ms('tail_q90_q50')
+                  curve_groups[(drop,method,rnd)]={'drop':drop,'method':method,'round':rnd,'test_accuracy_mean':am,'test_accuracy_sd':as_,'test_loss_mean':lm,'test_loss_sd':ls,'tail_mean':tm,'tail_sd':ts}
+          curves=sorted(curve_groups.values(), key=lambda r:(r['drop'],r['method'],r['round']))
+          cfields=list(curves[0].keys())
+          with (out/'learning_curves.csv').open('w',newline='') as h:
+              w=csv.DictWriter(h,fieldnames=cfields); w.writeheader(); w.writerows(curves)
+          provenance={'benchmark_run_id':40590841966,'branch':'hifedprox-fedprox-femnist','seeds':[8,9,10,11,12],'rounds':200,'clients_per_round':10,'local_epochs':20,'batch_size':10,'learning_rate':0.003,'fedprox_mu':1.0,'hifedprox_p':3.0,'hifedprox_mu':2.0,'hifedprox_R_rule':'0.5 * q90 update norm from 20-round p=2, mu=2 training pilot','straggler_fractions':[0,0.5,0.9]}
+          (out/'provenance.json').write_text(json.dumps(provenance,indent=2))
+          print('FINAL TABLE')
+          for a in table:
+              print(a['drop'],a['method'],'acc',a['test_accuracy_mean'],'sd',a['test_accuracy_sd'],'loss',a['test_loss_mean'],'tail',a['tail_mean'])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-femnist-combined-results
+          path: final_summary/
