@@ -40,7 +40,7 @@ jobs:
             --train "$TRAIN" --test "$TEST" --out results \
             --rounds 200 --clients-per-round 10 --epochs 20 --batch-size 10 \
             --lr 0.003 --mu 1.0 --power 6 --num-classes 26 \
-            --seeds 0 --drops ${{ matrix.drop }} --methods ${{ matrix.method }} \
+            --seeds 0 1 2 --drops ${{ matrix.drop }} --methods ${{ matrix.method }} \
             --pilot-rounds 20 --eval-every 5
       - name: Upload benchmark results
         if: always()
