@@ -1,8 +1,6 @@
 name: HiFedProx FedProx FEMNIST benchmark
 
 on:
-  push:
-    branches: [hifedprox-fedprox-femnist]
   workflow_dispatch:
 
 jobs:
