@@ -1,0 +1,54 @@
+name: Collect HiFedProx FEMNIST stage-2 calibration
+
+on:
+  push:
+    branches: [hifedprox-fedprox-femnist]
+    paths:
+      - '.github/workflows/collect-hifedprox-femnist-stage2.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all stage-2 artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p stage2_artifacts
+          gh run download 40589687736 -D stage2_artifacts
+          find stage2_artifacts -name aggregate.csv | wc -l
+      - name: Combine and rank
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import csv, json
+          rows=[]
+          for f in Path('stage2_artifacts').rglob('aggregate.csv'):
+              with f.open() as h:
+                  row=next(csv.DictReader(h))
+                  row['artifact_dir']=f.parent.name
+                  rows.append(row)
+          def fl(row,key): return float(row[key])
+          rows.sort(key=lambda r:(-fl(r,'val_accuracy_mean'),fl(r,'val_loss_mean'),fl(r,'power')))
+          out=Path('stage2_summary'); out.mkdir(exist_ok=True)
+          fields=list(rows[0].keys())
+          with (out/'stage2_ranked.csv').open('w',newline='') as h:
+              w=csv.DictWriter(h,fieldnames=fields); w.writeheader(); w.writerows(rows)
+          best=rows[0]
+          (out/'best_by_accuracy.json').write_text(json.dumps(best,indent=2))
+          print('CONFIGS',len(rows))
+          print('BEST_BY_ACCURACY',json.dumps(best,indent=2))
+          print('TOP10')
+          for r in rows[:10]:
+              print(r['artifact_dir'], 'p=',r['power'],'Rscale=',r['r_scale'],'acc=',r['val_accuracy_mean'],'loss=',r['val_loss_mean'])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage2-combined-ranking
+          path: stage2_summary/
